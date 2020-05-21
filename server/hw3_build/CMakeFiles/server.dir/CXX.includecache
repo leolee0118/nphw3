@@ -1,0 +1,32 @@
+#IncludeRegexLine: ^[ 	]*[#%][ 	]*(include|import)[ 	]*[<"]([^">]+)([">])
+
+#IncludeRegexScan: ^.*$
+
+#IncludeRegexComplain: ^$
+
+#IncludeRegexTransform: 
+
+/Users/leolee/documents/108_2/network_programming/hw/hw3/server/server.cpp
+iostream
+-
+string
+-
+sstream
+-
+vector
+-
+unistd.h
+-
+sys/types.h
+-
+sys/socket.h
+-
+netinet/in.h
+-
+sqlite3.h
+-
+map
+-
+nlohmann/json.hpp
+-
+
