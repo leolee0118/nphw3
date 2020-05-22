@@ -306,6 +306,8 @@ int register_handler(string name, string email, string password) {
     }
     cout << "Operation done successfully\n";
 
+    response["uid"] = to_string(sqlite3_last_insert_rowid(db));
+
     sqlite3_close(db);
 
     return 0; // success
@@ -342,6 +344,8 @@ int login_handler(string name, string password) {
         }
         cout << "Selection done successfully\n";
     }
+
+    response["uid"] = client_user.id;
 
     sql = "update users set status=status+1 where name='" + name + "';";
     cout << sql << '\n';
@@ -723,6 +727,7 @@ int comment_handler(string pid) {
         cout << "Selection done successfully.\n";
     }
 
+    response["authorId"] = to_string(client_posts.uids[0]);
     response["postAuthor"] = client_posts.authors[0];
     response["postTitle"] = client_posts.titles[0];
 
@@ -816,6 +821,7 @@ int read_handler(string pid) {
         cout << "Selection done successfully.\n";
     }
 
+    response["authorId"] = to_string(client_posts.uids[0]);
     response["postAuthor"] = client_posts.authors[0];
     response["postTitle"] = client_posts.titles[0];
     response["postDate"] = client_posts.dates[0];
@@ -855,6 +861,8 @@ int mailto_handler(string receiver, string subject) {
         }
         cout << "Selection done successfully.\n";
     }
+
+    response["receiverId"] = to_string(client_users.id);
 
     sql = "insert into mails (sender, receiver, subject) values ('" + 
                     client_user.name + "', '" + receiver + "', '" + subject + "');";

@@ -69,6 +69,19 @@ string newlineForm(string content) {
     return substitute(content, "<br>", "\n");
 }
 
+void legalBucketName(string &bucketName) {
+	string postfix = "-00";
+	for (int i = 0; i < bucketName.size(); i++) {
+		if ('A' <= bucketName[i] && bucketName[i] <= 'Z') {
+			bucketName[i] = bucketName[i] + 32; // to lowercase
+			postfix[1] = '1';
+		} else if (bucketName[i] == '_') {
+			bucketName[i] = '-';
+			postfix[2] = '1';
+		}
+	}
+}
+
 // aws
 inline bool ifFileExist(const string& name)
 {
@@ -181,21 +194,23 @@ bool deleteObject(const String& bucketName, const String& objectName) {
 
 // handlers
 bool register_handler(string name) {
-	string bucketName = prefix + name;
+	string uid = response["uid"];
+	string bucketName = prefix + uid + name;
+	legalBucketName(bucketName);
 	return createBucket(bucketName.c_str());
 }
 
 bool login_handler(string name) {
 	client_user.init();
 	client_user.name = name;
+	client_user.id = response["uid"];
 }
 
 bool createPost_handler(string title, string content) {
-	cout << title << '\n';
-	cout << title.size() << '\n';
 	string pid = response["pid"];
 	string objectName = postPrefix + pid + title;
-	string bucketName = prefix + client_user.name;
+	string bucketName = prefix + to_string(client_user.id) + client_user.name;
+	legalBucketName(bucketName);
 	
 	content = content + "\n--\n";
 
@@ -211,7 +226,8 @@ bool createPost_handler(string title, string content) {
 bool updatePost_handler(string pid, string category, string text) {
 	string title = response["postTitle"];
 	string objectName = postPrefix + pid + title;
-	string bucketName = prefix + client_user.name;
+	string bucketName = prefix + to_string(client_user.id) + client_user.name;
+	legalBucketName(bucketName);
 	string fileName = postDir + objectName;
 	if (category == "--title") {
 		string newObjectName = postPrefix + pid + text;
@@ -240,11 +256,13 @@ bool updatePost_handler(string pid, string category, string text) {
 }
 
 bool comment_handler(string pid, string comment) {
+	string authorId = response["authorId"];
 	string author = response["postAuthor"];
 	string title = response["postTitle"];
 	string completeComment = client_user.name + ":" + comment + "\n";
 	string objectName = postPrefix + pid + title;
-	string bucketName = prefix + author;
+	string bucketName = prefix + authorId + author;
+	legalBucketName(bucketName);
 	string fileName = postDir + objectName;
 
 	fstream file(fileName, fstream::out | fstream::app);
@@ -261,8 +279,9 @@ bool comment_handler(string pid, string comment) {
 
 bool deletePost_handler(string pid) {
 	string title = response["postTitle"];
-	string objectName = pid + title;
-	string bucketName = postPrefix + prefix + client_user.name;
+	string objectName = postPrefix + pid + title;
+	string bucketName = prefix + to_string(client_user.id) + client_user.name;
+	legalBucketName(bucketName);
 	string fileName = postDir + objectName;
 	
 	if (remove(fileName.c_str()) != 0) {
@@ -274,11 +293,13 @@ bool deletePost_handler(string pid) {
 }
 
 bool read_handler(string pid) {
+	string authorId = response["authorId"];
 	string title = response["postTitle"];
 	string author = response["postAuthor"];
 	string date = response["postDate"];
 	string objectName = postPrefix + pid + title;
-	string bucketName = prefix + author;
+	string bucketName = prefix + authorId + author;
+	legalBucketName(bucketName);
 	string fileName = postDir + objectName;
 
 	ifstream reader(fileName);
@@ -298,8 +319,10 @@ bool mailto_handler(string content) {
 	string mid = response["mid"];
 	string subject = response["mailSubject"];
 	string receiver = response["mailReceiver"];
+	string receiverId = response["receiverId"];
 	string objectName = mailPrefix + mid + subject;
-	string bucketName = prefix + receiver;
+	string bucketName = prefix + receiverId + receiver;
+	legalBucketName(bucketName);
 	string fileName = mailDir + objectName;
 
 	content = content + "\n";
@@ -318,7 +341,8 @@ bool retrMail_handler() {
 	string sender = response["mailSender"];
 	string date = response["mailDate"];
 	string objectName = mailPrefix + mid + subject;
-	string bucketName = prefix + client_user.name;
+	string bucketName = prefix + to_string(client_user.id) + client_user.name;
+	legalBucketName(bucketName);
 	string fileName = mailDir + objectName;
 
 	ifstream reader(fileName);
@@ -335,7 +359,8 @@ bool deleteMail_handler() {
 	string mid = response["mid"];
 	string subject = response["mailSubject"];
 	string objectName = mailPrefix + mid + subject;
-	string bucketName = prefix + client_user.name;
+	string bucketName = prefix + to_string(client_user.id) + client_user.name;
+	legalBucketName(bucketName);
 	string fileName = mailDir + objectName;
 
 	if (remove(fileName.c_str()) != 0) {
