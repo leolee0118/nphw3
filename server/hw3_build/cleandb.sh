@@ -1,2 +1,2 @@
 #!/bin/bash
-cp ../cleanDataBase.db test.db
+cp ../tmp.db test.db

@@ -395,6 +395,7 @@ void middleware(const int cid, vector<string> &cmd) {
 }
 
 int handler(const char *cres) { // 1: exit, 0: otherwise
+	// cout << cres << '\n';
 	response.clear();
 	response = json::parse(cres);
 	int cid = response["cid"], rid = response["rid"];
@@ -406,110 +407,192 @@ int handler(const char *cres) { // 1: exit, 0: otherwise
 	if (rid == 0) {
 		middleware(cid, cmd);
 	}
-	cout << res;
+	// cout << "hi?\n";
+	// cout << response["msg"];
+	if (cmd.size() && cmd[0] != ".INIT") {
+		cout << res;
+	}
+	cout << "% ";
+	cout.flush();
 	return 0;
 }
 
-int main(int argc, char *argv[]) {
-	if (argc < 3) {
-		cerr << "No [hostname, port] provided\n";
-		exit(1);
-	}
+// int main(int argc, char *argv[]) {
+// 	if (argc < 3) {
+// 		cerr << "No [hostname, port] provided\n";
+// 		exit(1);
+// 	}
 
-    int sockfd, portno;
-    struct sockaddr_in serv_addr;
-    struct hostent *server;
+//     int sockfd, portno;
+//     struct sockaddr_in serv_addr;
+//     struct hostent *server;
 
-	sockfd = socket(AF_INET, SOCK_STREAM, 0);
-	if (sockfd < 0) {
-		cerr << "failed to open socket\n";
-		exit(1);
-	}
+// 	sockfd = socket(AF_INET, SOCK_STREAM, 0);
+// 	if (sockfd < 0) {
+// 		cerr << "failed to open socket\n";
+// 		exit(1);
+// 	}
 
-    bzero((char *) &serv_addr, sizeof(serv_addr));
-    portno = atoi(argv[2]);
-    server = gethostbyname(argv[1]);
-    if (server == NULL) {
-        fprintf(stderr,"ERROR, no such host\n");
-        exit(0);
-    }
+//     bzero((char *) &serv_addr, sizeof(serv_addr));
+//     portno = atoi(argv[2]);
+//     server = gethostbyname(argv[1]);
+//     if (server == NULL) {
+//         fprintf(stderr,"ERROR, no such host\n");
+//         exit(0);
+//     }
     
+//     serv_addr.sin_family = AF_INET;
+//     bcopy((char *)server->h_addr, 
+//          (char *)&serv_addr.sin_addr.s_addr,
+//          server->h_length);
+//     serv_addr.sin_port = htons(portno);
+
+//     if (connect(sockfd,(struct sockaddr *) &serv_addr,sizeof(serv_addr)) < 0) {
+// 		cerr << "failed to connect\n";
+// 		exit(1);
+// 	}
+
+// 	cout << "fd: " << sockfd << '\n';
+ 
+// 	Aws::SDKOptions options;
+//    	Aws::InitAPI(options);
+
+// 	int n, i = 0;
+// 	char buffer[bufsize];
+	
+// 	// read welcome message
+// 	bzero(buffer, bufsize);
+// 	n = read(sockfd, buffer, bufsize - 1);
+// 	if (n < 0) {
+// 		cerr << "failed to read from socket\n";
+// 		exit(1);
+// 	}
+// 	cout << buffer;
+
+// 	// n = write(sockfd, buffer, strlen(buffer));
+// 	// if (n < 0) {
+// 	// 	cerr << "real buf failure\n";
+// 	// 	exit(1);
+// 	// }
+
+// 	while (true) {
+// 		// n = write(sockfd, buffer, strlen(buffer));
+// 		// if (n < 0) {
+// 		// 	cerr << "real buf failure\n";
+// 		// 	exit(1);
+// 		// }
+
+// 		// // read %
+// 		// bzero(buffer, bufsize);
+// 		// n = read(sockfd, buffer, bufsize - 1);
+// 		// if (n < 0) {
+// 		// 	cerr << "failed to read from socket1\n";
+// 		// 	exit(1);
+// 		// }
+// 		// cout << buffer;
+// 		cout << "% ";
+
+// 		// request
+// 		bzero(buffer, bufsize);
+// 		fgets(buffer, bufsize - 1, stdin);
+// 		n = write(sockfd, buffer, strlen(buffer));
+// 		if (n < 0) {
+// 			cerr << "failed to write to socket\n";
+// 			exit(1);
+// 		}
+
+// 		// response form: <cid>,<resid>,<res>
+// 		bzero(buffer, bufsize);
+// 		n = read(sockfd, buffer, bufsize - 1);
+// 		if (n < 0) {
+// 			cerr << "failed to read from socket2\n";
+// 			exit(1);
+// 		}
+// 		int stat = handler(buffer/*, cmd*/);
+// 		if (stat == 1) {
+// 			break;
+// 		}
+// 	}
+
+// 	Aws::ShutdownAPI(options);
+// }
+
+int main(int argc, char* argv[]){
+    if (argc != 3){
+        cerr << "No [hostname, port] provided\n";
+		exit(1);
+    }
+ 
+    //Initialize
+    int sockfd, portno;
+	struct sockaddr_in serv_addr;
+	struct hostent *server;
+    char buffer[bufsize];
+    
+ 
+    if ((sockfd = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
+        cerr << "failed to open socket\n";
+		exit(1);
+    }
+
+    bzero(&serv_addr, sizeof(serv_addr));
+	portno = atoi(argv[2]);
+	server = gethostbyname(argv[1]);
+	if (server == NULL) {
+        cerr << "ERROR, no such host\n";
+        exit(1);
+    }
+
     serv_addr.sin_family = AF_INET;
-    bcopy((char *)server->h_addr, 
+	bcopy((char *)server->h_addr, 
          (char *)&serv_addr.sin_addr.s_addr,
          server->h_length);
     serv_addr.sin_port = htons(portno);
-
-    if (connect(sockfd,(struct sockaddr *) &serv_addr,sizeof(serv_addr)) < 0) {
-		cerr << "failed to connect\n";
-		exit(1);
-	}
  
+    //Connect to server
+    if ((connect(sockfd, (struct sockaddr *)&serv_addr, sizeof(serv_addr))) != 0) {
+        cerr << "failed to connect\n";
+		exit(1);
+    } else {
+        read(sockfd, buffer, sizeof(buffer));
+        cout << buffer;
+		write(sockfd, ".INIT", 5);
+    }
+
+	fd_set rset;
+    FD_ZERO(&rset);
+
 	Aws::SDKOptions options;
    	Aws::InitAPI(options);
-
-	int n, i = 0;
-	char buffer[bufsize];
-	
-	// read welcome message
-	bzero(buffer, bufsize);
-	n = read(sockfd, buffer, bufsize - 1);
-	if (n < 0) {
-		cerr << "failed to read from socket\n";
-		exit(1);
-	}
-	cout << buffer;
-
-	while (true) {
-		n = write(sockfd, buffer, strlen(buffer));
-		if (n < 0) {
-			cerr << "real buf failure\n";
-			exit(1);
-		}
-
-		// read %
-		bzero(buffer, bufsize);
-		n = read(sockfd, buffer, bufsize - 1);
-		if (n < 0) {
-			cerr << "failed to read from socket1\n";
-			exit(1);
-		}
-		cout << buffer;
-
-		// request
-		bzero(buffer, bufsize);
-		fgets(buffer, bufsize - 1, stdin);
-		n = write(sockfd, buffer, strlen(buffer));
-		if (n < 0) {
-			cerr << "failed to write to socket\n";
-			exit(1);
-		}
-
-		// response form: <cid>,<resid>,<res>
-		bzero(buffer, bufsize);
-		n = read(sockfd, buffer, bufsize - 1);
-		if (n < 0) {
-			cerr << "failed to read from socket2\n";
-			exit(1);
-		}
-		int stat = handler(buffer/*, cmd*/);
-		if (stat == 1) {
-			break;
-		}
-	}
-
-	json test;
-	test["abc"] = 123;
-	test["def"] = "this is a test";
-
-	cout << test.dump(4) << '\n';
-
-	json tmp = json::parse(test.dump(4));
-	cout << tmp["abc"] << '\n';
-	cout << tmp.dump(2) << '\n';
-
-	tmp.clear();
-	cout << tmp << '\n';
+ 
+    //Loop
+    while(1){
+        int maxfd;
+        FD_SET(0, &rset);
+        FD_SET(sockfd, &rset);
+        maxfd = max(0, sockfd) + 1;
+        select(maxfd, &rset, NULL, NULL, NULL);
+        //socket is readable
+        if (FD_ISSET(sockfd, &rset)) {
+			bzero(buffer, bufsize);
+            if (read(sockfd, buffer, bufsize - 1) > 0) {
+				int stat = handler(buffer/*, cmd*/);
+				if (stat == 1) {
+					break;
+				}
+			}
+        }
+        //input is readable
+        if (FD_ISSET(0, &rset)) {
+            bzero(buffer, bufsize);
+			fgets(buffer, bufsize - 1, stdin);
+			if (write(sockfd, buffer, strlen(buffer)) < 0) {
+				cerr << "failed to write to socket\n";
+				exit(1);
+			}
+        }
+    }
+    close(sockfd);
 
 	Aws::ShutdownAPI(options);
 }

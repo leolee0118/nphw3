@@ -8,6 +8,7 @@
 #include <netinet/in.h>
 #include <sqlite3.h>
 #include <map>
+#include <utility>
 #include <nlohmann/json.hpp>
 
 #define bufsize 1024
@@ -66,16 +67,35 @@ struct mails_data {
     }
 };
 
+struct subscriptions_data {
+    vector<int> ids, uids;
+    vector<string> usernames, targets, targetNames, keywords;
+    void init() {
+        ids.clear();
+        usernames.clear();
+        uids.clear();
+        targets.clear();
+        targetNames.clear();
+        keywords.clear();
+    }
+};
+
 user_data client_user, client_users;
+// user_data client_users;
 boards_data client_boards;
 posts_data client_posts;
 mails_data client_mails;
+subscriptions_data client_subs;
 
+map <int, user_data> fd_user;
+map <string, int> username_fd;
 map <string, string> usage;
 map <string, int> cmdSize;
 map <string, int> cmdId;
 vector<map<int, string> > msgs;
 json response;
+
+map<int, string> broadcasts;
 
 // callbacks
 static int simple_callback(void *data, int argc, char **argv, char **azColName) {
@@ -147,7 +167,67 @@ static int listMail_callback(void *data, int argc, char **argv, char **azColName
     return 0;
 }
 
+static int listSubscription_callback(void *data, int argc, char **argv, char **azColName) {
+    if (argc) {
+        for (int i = 0; i < argc; ) {
+            client_subs.ids.push_back(atoi(argv[i++]));
+            client_subs.usernames.push_back(argv[i++]);
+            client_subs.uids.push_back(atoi(argv[i++]));
+            client_subs.targets.push_back(argv[i++]);
+            client_subs.targetNames.push_back(argv[i++]);
+            client_subs.keywords.push_back(argv[i++]);
+        }
+    }
+    return 0;
+}
+
 // functions
+void writeMsg(int fd, string msg, int cid, int res) {
+    response["msg"] = msg;
+    response["cid"] = cid;
+    response["rid"] = res;
+    cout << response.dump() << '\n';
+    write(fd, response.dump().c_str(), response.dump().size());
+}
+
+void broadcast() {
+    map<int, user_data>::iterator it;
+    for (it = fd_user.begin(); it != fd_user.end(); it++) {
+        if (it->second.status == 0) {
+            continue;
+        }
+        int fd = it->first;
+        string msg = broadcasts[fd];
+        cout << "fd: " << fd << " msg: " << msg << '\n';
+        if (msg != "") {
+            writeMsg(fd, msg, -1, -1);
+        }
+    }
+}
+
+void mapping(int fd, bool get0_put1) {
+    if (get0_put1 == 0) {
+        client_user = fd_user[fd];
+    } else {
+        fd_user[fd] = client_user;
+        username_fd[client_user.name] = fd;
+    }
+}
+
+void subscribe_usage(vector<string> &cmd) {
+    msgs[17][-1] = "Usage: subscribe --board/--author <boardname>/<authorname> --keyword <keyword>\n";
+    msgs[18][-1] = "Usage: unsubscribe --board/--author <boardname>/<authorname>\n";
+    if (cmd.size() >= 1) {
+        if (cmd[1] == "--board") {
+            msgs[17][-1] = "[Invalid option] usage: subscribe --board <boardname> --keyword <keyword>\n";
+            msgs[18][-1] = "Usage: unsubscribe --board <boardname>\n";
+        } else if (cmd[1] == "--author") {
+            msgs[17][-1] = "[Invalid option] usage: subscribe --author <authorname> --keyword <keyword>\n";
+            msgs[18][-1] = "Usage: unsubscribe --author <authorname>\n";
+        }
+    }
+}
+
 bool check_email(string email) {
     bool flag = false;
     for (int i = 0; i < email.size(); i++) {
@@ -156,14 +236,6 @@ bool check_email(string email) {
         }
     }
     return flag;
-}
-
-void writeMsg(int fd, string msg, int cid, int res) {
-    response["msg"] = msg;
-    response["cid"] = cid;
-    response["rid"] = res;
-    cout << response.dump() << '\n';
-    write(fd, response.dump().c_str(), response.dump().size());
 }
 
 void getTargetText(const char *req, vector<string> &cmd, string targeta, string targetb) {
@@ -523,6 +595,7 @@ int listBoard_handler(string key) {
 int createPost_handler(vector<string> cmd) {
     client_posts.init();
     client_boards.init();
+    client_subs.init();
     if (client_user.status == 0) {
         return 3;
     }
@@ -571,6 +644,27 @@ int createPost_handler(vector<string> cmd) {
 
     response["pid"] = to_string(sqlite3_last_insert_rowid(db));
 
+    sql = "select * from subscriptions where (target='board' and targetName='" + 
+            client_boards.names[0] + "') or (target='author' and targetName='" + client_user.name + "');";
+    sqlStat = sqlite3_exec(db, sql.c_str(), listSubscription_callback, 0, &errMsg);
+
+    if (sqlStat != SQLITE_OK) {
+        cerr << "sql error: " << errMsg << '\n';
+        cerr << "last sql: " << sql << '\n';
+        sqlite3_free(errMsg);
+        return 1;
+    } else {
+        cout << "Selection done successfully\n";
+    }
+
+    for (int i = 0; i < client_subs.ids.size(); i++) {
+        if (title.find(client_subs.keywords[i]) != string::npos) {
+            string msg = "*[" + client_boards.names[0] + "] " + title + " - by " + client_user.name + "*\n";
+            cout << msg;
+            cout << "Name: " << client_subs.usernames[i] << "fd: " << username_fd[client_subs.usernames[i]] << '\n'; 
+            broadcasts[username_fd[client_subs.usernames[i]]] = msg;
+        }
+    }
     sqlite3_close(db);
 
     return 0;
@@ -879,6 +973,8 @@ int mailto_handler(string receiver, string subject) {
     response["mailSubject"] = subject;
     response["mailReceiver"] = receiver;
 
+    sqlite3_close(db);
+
     return 0;
 }
 
@@ -906,6 +1002,7 @@ int listMail_handler() {
         cerr << "sql error: " << errMsg << '\n';
         cerr << "last sql: " << sql << '\n';
         sqlite3_free(errMsg);
+        sqlite3_close(db);
         return 1;
     } else {
         for (int i = 0; i < client_mails.ids.size(); i++) {
@@ -913,6 +1010,7 @@ int listMail_handler() {
                         + client_mails.senders[i] + "\t" + simpleDateForm(client_mails.dates[i]) + "\n";
         }
         cout << "Selection done successfully.\n";
+        sqlite3_close(db);
         return 0;
     }
 
@@ -942,6 +1040,7 @@ int retrMail_handler(string id) {
         cerr << "sql error: " << errMsg << '\n';
         cerr << "last sql: " << sql << '\n';
         sqlite3_free(errMsg);
+        sqlite3_close(db);
         return 1;
     } else {
         if (iid > client_mails.ids.size()) {
@@ -952,6 +1051,7 @@ int retrMail_handler(string id) {
         response["mailSender"] = client_mails.senders[iid - 1];
         response["mailDate"] = client_mails.dates[iid - 1];
         cout << "Selection done successfully.\n";
+        sqlite3_close(db);
         return 0;
     }
 }
@@ -1000,6 +1100,132 @@ int deleteMail_handler(string id) {
         return 1;
     }
 
+    sqlite3_close(db);
+}
+
+int subscribe_handler(string target, string targetName, string keyword) {
+    if (client_user.status == 0) {
+        return 2;
+    }
+    if (target != "--board" && target != "--author") {
+        return -1;
+    }
+    
+    target = target.substr(2, target.size() - 2);
+
+    sqlite3 *db;
+    char *errMsg = 0;
+    int sqlStat;
+
+    if (sqlite3_open(database, &db)) {
+        cerr << "can't open database.\n";
+    }
+    cout << "Opened database successfully\n";
+
+    string sql = "insert into subscriptions (username, uid, target, targetname, keyword) values ('" + 
+                    client_user.name + "', '" + to_string(client_user.id) + "', '" + 
+                    target + "', '" + targetName + "', '" + keyword + "');";
+    sqlStat = sqlite3_exec(db, sql.c_str(), simple_callback, 0, &errMsg);
+    if (sqlStat != SQLITE_OK) {
+        cerr << "sql error: " << errMsg << '\n';
+        cerr << "last sql: " << sql << '\n';
+        sqlite3_free(errMsg);
+        if (sqlStat == SQLITE_CONSTRAINT) {
+            return 4; // violates unique constraint
+        }
+        return 1; // other problems
+    }
+    cout << "Operation done successfully\n";
+
+    sqlite3_close(db);
+
+    return 0;
+}
+
+int unsubscribe_handler(string target, string targetName) {
+    msgs[18][3] = "You haven't subscribed " + targetName + ".\n";
+    client_subs.init();
+    if (client_user.status == 0) {
+        return 2;
+    }
+    if (target != "--board" && target != "--author") {
+        return -1;
+    }
+
+    target = target.substr(2, target.size() - 2);
+
+    sqlite3 *db;
+    char *errMsg = 0;
+    int sqlStat;
+
+    if (sqlite3_open(database, &db)) {
+        cerr << "can't open database.\n";
+    }
+    cout << "Opened database successfully\n";
+
+    string sql = "select * from subscriptions where username='" + client_user.name + 
+                "' and target='" + target + "' and targetname='" + targetName + "';";
+    sqlStat = sqlite3_exec(db, sql.c_str(), listSubscription_callback, 0, &errMsg);
+
+    if (sqlStat != SQLITE_OK) {
+        cerr << "sql error: " << errMsg << '\n';
+        cerr << "last sql: " << sql << '\n';
+        sqlite3_free(errMsg);
+        return 1;
+    } else {
+        if (client_subs.ids.size() == 0) {
+            return 3;
+        }
+    }
+
+    sql = "delete from subscriptions where username='" + client_user.name + 
+                "' and target='" + target + "' and targetname='" + targetName + "';";
+    sqlStat = sqlite3_exec(db, sql.c_str(), simple_callback, 0, &errMsg);
+
+    if (sqlStat != SQLITE_OK) {
+        cerr << "sql error: " << errMsg << '\n';
+        cerr << "last sql: " << sql << '\n';
+        sqlite3_free(errMsg);
+        return 1;
+    }
+
+    sqlite3_close(db);
+
+    return 0;
+}
+
+int listSub_handler() {
+    client_subs.init();
+    if (client_user.status == 0) {
+        return 2;
+    }
+
+    sqlite3 *db;
+    char *errMsg = 0;
+    int sqlStat;
+
+    if (sqlite3_open(database, &db)) {
+        cerr << "can't open database.\n";
+    }
+    cout << "Opened database successfully\n";
+
+    string sql = "select * from subscriptions where username='" + client_user.name + "';";
+    sqlStat = sqlite3_exec(db, sql.c_str(), listSubscription_callback, 0, &errMsg);
+
+    if (sqlStat != SQLITE_OK) {
+        cerr << "sql error: " << errMsg << '\n';
+        cerr << "last sql: " << sql << '\n';
+        sqlite3_free(errMsg);
+        return 1;
+    }
+
+    msgs[19][0] = "Type\tName\tKeyword\n";
+    for (int i = 0; i < client_subs.ids.size(); i++) {
+        msgs[19][0] = msgs[19][0] + client_subs.targets[i] + '\t' + 
+                    client_subs.targetNames[i] + '\t' + client_subs.keywords[i] + '\n';
+    }
+
+    return 0;
 }
 
 int middleware(int cid, vector<string> cmd) {
@@ -1039,6 +1265,12 @@ int middleware(int cid, vector<string> cmd) {
         res = retrMail_handler(cmd[1]);
     } else if (cid == 16) {
         res = deleteMail_handler(cmd[1]);
+    } else if (cid == 17) {
+        res = subscribe_handler(cmd[1], cmd[2], cmd[4]);
+    } else if (cid == 18) {
+        res = unsubscribe_handler(cmd[1], cmd[2]);
+    } else if (cid == 19) {
+        res = listSub_handler();
     }
     return res;
 }
@@ -1065,6 +1297,7 @@ int handler(const char *req, int fd) { // 1: exit, 0: otherwise
 
     response.clear();
     response["cmd"] = cmd;
+
     if (cmd.size() == 0) { // if char contains only newline
         writeMsg(fd, "", -1, -1);
         return 0;
@@ -1080,18 +1313,28 @@ int handler(const char *req, int fd) { // 1: exit, 0: otherwise
 
     response["cmd"] = cmd;
     int cid = cmdId[cmd[0]];
+
+    if (cmd[0] == "subscribe" || cmd[0] == "unsubscribe") {
+        subscribe_usage(cmd);
+    }
+
     if (cmd.size() != cmdSize[cmd[0]]) {
         cout << "usage error\n";
         writeMsg(fd, msgs[cid][-1], cid, -1);
         return 0;
     }
+
+    broadcasts.clear();
+    mapping(fd, 0);
     int res = middleware(cid, cmd);
     if (cmd[0] == "exit" && res == 0) {
         writeMsg(fd, ".EXIT", cid, res);
         return 1;
     }
 
+    mapping(fd, 1);
     writeMsg(fd, msgs[cid][res], cid, res);
+    broadcast();
     return 0;
 }
 
@@ -1113,6 +1356,9 @@ void build() {
     cmdSize["list-mail"] = 1;
     cmdSize["retr-mail"] = 2;
     cmdSize["delete-mail"] = 2;
+    cmdSize["subscribe"] = 5;
+    cmdSize["unsubscribe"] = 3;
+    cmdSize["list-sub"] = 1;
 
     cmdId["register"] = 0;
     cmdId["login"] =  1;
@@ -1131,6 +1377,9 @@ void build() {
     cmdId["list-mail"] = 14;
     cmdId["retr-mail"] = 15;
     cmdId["delete-mail"] = 16;
+    cmdId["subscribe"] = 17;
+    cmdId["unsubscribe"] = 18;
+    cmdId["list-sub"] = 19;
 
     msgs.resize(cmdId.size());
 
@@ -1142,7 +1391,7 @@ void build() {
 
     msgs[1][-1] = "Usage: login <username> <password>\n";
     msgs[1][1] = "Some problems\n";
-    msgs[1][2] = "Please logout first\n";
+    msgs[1][2] = "Please logout first.\n";
     msgs[1][3] = "Login failed.\n";
 
     msgs[2][-1] = "Usage: logout\n";
@@ -1222,84 +1471,136 @@ void build() {
     msgs[16][1] = "Some problems.\n";
     msgs[16][2] = "Please login first.\n";
     msgs[16][3] = "No such mail.\n";
+
+    msgs[17][-1] = "Usage: subscribe --board/--author <boardname>/<authorname> --keyword <keyword>\n";
+    msgs[17][0] = "Subscribe successfully.\n";
+    msgs[17][1] = "Some problems.\n";
+    msgs[17][2] = "Please login first.\n";
+    // msgs[17][3] = ""
+    msgs[17][4] = "Already subscribed.\n";
+
+    msgs[18][-1] = "Usage: unsubscribe --board/--author <boardname>/<authorname>\n";
+    msgs[18][0] = "Unsubscribe successfully.\n";
+    msgs[18][1] = "Some problems.\n";
+    msgs[18][2] = "Please login first.\n";
+    // msgs[18][3] = 
+
+    msgs[19][-1] = "Usage: list-sub\n";
+    // msgs[19][0]
+    msgs[19][1] = "Some problems.\n";
+    msgs[19][2] = "Please login first.\n";
 }
 
-int main(int argc, char *argv[]) {
-    if (argc < 2) { // no-port error
-        cerr << "No port provided\n";
-        exit(1);
-    }
-
+int main(int argc, char **argv) {
+    if(argc != 2) {
+		cerr << "No port provided\n";
+		exit(1);
+	}
+    
     int sockfd, portno; // file descriptor, port number
-    struct sockaddr_in serv_addr; // structure to be bind
+    struct sockaddr_in server_addr;
+    socklen_t len;
 
-    sockfd = socket(AF_INET, SOCK_STREAM, 0); // open a socket and take the file descriptor as int
-    if (sockfd < 0) {
-        cerr << "failed to open socket\n";
-        exit(1);
-    }
-
-    bzero((char *) &serv_addr, sizeof(serv_addr)); // initialize
+    bzero(&server_addr, sizeof(server_addr));
     portno = atoi(argv[1]);
 
     // set serv_addr info
-    serv_addr.sin_family = AF_INET;
-    serv_addr.sin_addr.s_addr = INADDR_ANY;
-    serv_addr.sin_port = htons(portno);
+	server_addr.sin_family = AF_INET;
+    server_addr.sin_addr.s_addr = INADDR_ANY;
+	server_addr.sin_port = htons(portno);
+    len = sizeof(struct sockaddr_in);
 
-    // bind and listen
-    if (::bind(sockfd, (struct sockaddr *) &serv_addr, sizeof(serv_addr)) < 0) {
-        cerr << "failed to bind\n";
+	if((sockfd = socket(AF_INET, SOCK_STREAM, 0)) < 0){
+        printf("Socket Error\n");
+        exit(1);
     }
-    listen(sockfd, 5);
-    
-    int accepted_fd, n; // file descriptor after accept, data(chars) length
-    struct sockaddr_in cli_addr;
-    socklen_t clilen = sizeof(cli_addr);
+
+    int flag = 1;
+    /* Set socket option */
+    if(setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &flag, sizeof(int)) < 0) {
+        printf("setsocket Error\n");
+        exit(1);
+    }
+
+    /* Bind */
+	if (::bind(sockfd, (struct sockaddr*)&server_addr, sizeof(server_addr)) < 0) {
+		cerr << "failed to bind\n";
+        exit(1);
+    }
+
+    /* Listen */
+	if (listen(sockfd, 10) == -1) {
+        perror("listen Error");
+        exit(3);
+    }
+
+    fd_set master; // master file descriptor set
+    FD_ZERO(&master); // initialize master
+
+    // add sockfd to master
+    FD_SET(sockfd, &master);
+
+    // track the max fd
+    int fdmax = sockfd;
+
     char buffer[bufsize];
 
     client_user.init();
     build();
-    while (true) {
-        accepted_fd = accept(sockfd, (struct sockaddr *) &cli_addr, &clilen); // build connection
-        if (accepted_fd < 0) {
-            cerr << "failed to accept\n";
+
+    while(true) {
+        fd_set read_fds;
+        read_fds = master;
+
+        if(select(fdmax + 1, &read_fds, NULL, NULL, NULL) == -1) {
+            perror("select Error");
+            exit(4);
         }
-        cout << "New connection\n";
-        pid_t pid = fork();
-        if (pid < 0) {
-            perror("fork()");
-            exit(-1);
-        } else if (pid == 0) { // child process, handle stuffs after a connection built.
-            close(sockfd);
-            write(accepted_fd, "********************************\n** Welcome to the BBS server. **\n********************************\n", 99);
-            while (true) {
-                n = read(accepted_fd, buffer, bufsize - 1);
-                if (n < 0) {
-                    cerr << "real buf failure\n";
-                    exit(1);
-                }
-                cout << buffer;
 
-                write(accepted_fd, "% ", 2);
-                cout << "%%%%%%%%\n";
-
-                bzero(buffer, sizeof(buffer)); // read buffer
-                n = read(accepted_fd, buffer, bufsize - 1); // wait for message 
-                if (n < 0) {
-                    cerr << "failed to read from socket\n";
-                    exit(1);
-                }
-
-                int res = handler(buffer, accepted_fd); // handle request
-                if (res == 1) {
-                    break;
+        for(int fd = 0; fd <= fdmax; fd++) {
+            if (FD_ISSET(fd, &read_fds)) {
+                if (fd == sockfd) {
+                    struct sockaddr_in client_addr;
+                    // handle new connections
+                    int accepted_fd;
+                    accepted_fd = accept(sockfd, (struct sockaddr *)&client_addr, &len);
+                    write(accepted_fd, "********************************\n** Welcome to the BBS server. **\n********************************\n", 99);
+                    // recv(accepted_fd, buffer, sizeof(buffer), 0);
+                    // write(accepted_fd, "hi", 2);
+                    if (accepted_fd < 0) {
+                        cerr << "failed to accept\n";
+                    } else {
+                        FD_SET(accepted_fd, &master); // add to fd set
+                        if (accepted_fd > fdmax) { // track the max fd
+                            fdmax = accepted_fd;
+                        }
+                        cout << "New connection\n";
+                    }
+                } else {
+                    int n;
+                    bzero(buffer, sizeof(buffer));
+                    // handle requests from clients
+                    if ((n = recv(fd, buffer, sizeof(buffer), 0)) <= 0) {
+                        // got error or connection closed by client
+                        if (n == 0) {
+                            client_user.init();
+                            mapping(fd, 1);
+                            cout << "close by client, fd: " << fd << '\n';
+                        } else {
+                            cerr << "failed to read from socket\n";
+                        }
+                        close(fd);
+                        FD_CLR(fd, &master);
+                    } else {
+                        int res = handler(buffer, fd); // handle request
+                        if (res == 1) {
+                            close(fd);
+                            FD_CLR(fd, &master);
+                        }
+                    }
                 }
             }
-            exit(0);
-        } else { // parent process, assign missions to child, and keep on building connections.
-            close(accepted_fd);
         }
     }
-    return 0;
+	return 0;	
 }

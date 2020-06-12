@@ -1,4 +1,4 @@
-# Install script for directory: /Users/leolee/Documents/108_2/network_programming/hw/hw3/client
+# Install script for directory: /Users/leolee/Documents/108_2/network_programming/hw/hw4/client
 
 # Set the install prefix
 if(NOT DEFINED CMAKE_INSTALL_PREFIX)
@@ -40,5 +40,5 @@ endif()
 
 string(REPLACE ";" "\n" CMAKE_INSTALL_MANIFEST_CONTENT
        "${CMAKE_INSTALL_MANIFEST_FILES}")
-file(WRITE "/Users/leolee/Documents/108_2/network_programming/hw/hw3/client/hw3_build/${CMAKE_INSTALL_MANIFEST}"
+file(WRITE "/Users/leolee/Documents/108_2/network_programming/hw/hw4/client/hw3_build/${CMAKE_INSTALL_MANIFEST}"
      "${CMAKE_INSTALL_MANIFEST_CONTENT}")
